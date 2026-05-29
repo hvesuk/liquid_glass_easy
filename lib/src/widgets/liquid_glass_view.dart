@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:liquid_glass_easy/src/controllers/liquid_glass_view_controller.dart';
 import 'package:liquid_glass_easy/src/widgets/liquid_glass.dart';
 import 'package:liquid_glass_easy/src/widgets/utils/liquid_glass_refresh_rate.dart';
+import 'package:liquid_glass_easy/src/widgets/utils/liquid_glass_shape.dart';
 
 // Main container that renders LiquidGlass lenses on top of a background
 class LiquidGlassView extends StatefulWidget {
@@ -62,15 +63,16 @@ class LiquidGlassView extends StatefulWidget {
   /// - [deviceRefreshRate] = tries to match the display refresh rate
   final LiquidGlassRefreshRate refreshRate;
 
-  const LiquidGlassView(
-      {super.key,
-      this.controller,
-      required this.backgroundWidget,
-      required this.children,
-      this.pixelRatio = 1.0,
-      this.realTimeCapture = true,
-      this.useSync = true,
-      this.refreshRate = LiquidGlassRefreshRate.deviceRefreshRate});
+  const LiquidGlassView({
+    super.key,
+    this.controller,
+    required this.backgroundWidget,
+    required this.children,
+    this.pixelRatio = 1.0,
+    this.realTimeCapture = true,
+    this.useSync = true,
+    this.refreshRate = LiquidGlassRefreshRate.deviceRefreshRate,
+  });
 
   @override
   State<LiquidGlassView> createState() => _LiquidGlassViewState();
@@ -78,12 +80,15 @@ class LiquidGlassView extends StatefulWidget {
 
 class _LiquidGlassViewState extends State<LiquidGlassView>
     with SingleTickerProviderStateMixin {
+  static Size _lastStableSize = Size.zero;
+
   final GlobalKey _repaintKey = GlobalKey();
   ui.Image? _image;
   ui.FragmentProgram? _mainProgram;
   ui.FragmentProgram? _borderProgram;
   Map<String, dynamic> _shaders = {};
   late final AnimationController _controller;
+  Size _lastCaptureSize = Size.zero;
   bool _realtimeCaptureEnabled = false;
   bool isWeb = kIsWeb;
 
@@ -94,24 +99,23 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
 
     DateTime lastCaptureTime = DateTime.now();
 
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(days: 2),
-    )..addListener(() async {
-        if (!_realtimeCaptureEnabled) return;
-        final interval = _refreshInterval;
-        // If deviceRefreshRate → capture every frame
-        if (interval == null) {
-          await _captureWidgetSafe();
-          return;
-        }
-        // Otherwise throttle based on selected refresh rate
-        final now = DateTime.now();
-        if (now.difference(lastCaptureTime) >= interval) {
-          lastCaptureTime = now;
-          await _captureWidgetSafe();
-        }
-      });
+    _controller =
+        AnimationController(vsync: this, duration: const Duration(days: 2))
+          ..addListener(() async {
+            if (!_realtimeCaptureEnabled) return;
+            final interval = _refreshInterval;
+            // If deviceRefreshRate → capture every frame
+            if (interval == null) {
+              await _captureWidgetSafe();
+              return;
+            }
+            // Otherwise throttle based on selected refresh rate
+            final now = DateTime.now();
+            if (now.difference(lastCaptureTime) >= interval) {
+              lastCaptureTime = now;
+              await _captureWidgetSafe();
+            }
+          });
     widget.controller?.attach(
       captureOnce: _captureOnce,
       startRealtime: _startRealtimeCapture,
@@ -156,7 +160,12 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
   Size get captureSize {
     final renderBox =
         _repaintKey.currentContext?.findRenderObject() as RenderBox?;
-    return renderBox?.size ?? Size.zero;
+    final size = renderBox?.size ?? Size.zero;
+    if (size.width > 0 && size.height > 0) {
+      _lastCaptureSize = size;
+      return size;
+    }
+    return _lastCaptureSize;
   }
 
   // Future<void> _loadShaders() async {
@@ -173,9 +182,11 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
 
   Future<void> _loadProgramsOnce() async {
     _mainProgram ??= await ui.FragmentProgram.fromAsset(
-        'packages/liquid_glass_easy/lib/assets/shaders/liquid_glass.frag');
+      'packages/liquid_glass_easy/lib/assets/shaders/liquid_glass.frag',
+    );
     _borderProgram ??= await ui.FragmentProgram.fromAsset(
-        'packages/liquid_glass_easy/lib/assets/shaders/liquid_glass_border.frag');
+      'packages/liquid_glass_easy/lib/assets/shaders/liquid_glass_border.frag',
+    );
   }
 
   List<ui.FragmentShader> _createShaderList(
@@ -183,6 +194,24 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
     int count,
   ) {
     return List.generate(count, (_) => program.fragmentShader());
+  }
+
+  List<ui.FragmentShader> _resizeShaderList(
+    List<ui.FragmentShader>? current,
+    ui.FragmentProgram program,
+    int count,
+  ) {
+    final existing = current ?? const <ui.FragmentShader>[];
+    if (existing.length == count) {
+      return existing;
+    }
+    if (existing.length > count) {
+      return existing.sublist(0, count);
+    }
+    return <ui.FragmentShader>[
+      ...existing,
+      ..._createShaderList(program, count - existing.length),
+    ];
   }
 
   Future<void> _loadShaders() async {
@@ -208,11 +237,22 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
     if (_mainProgram == null || _borderProgram == null) return;
     final main = _mainProgram!;
     final border = _borderProgram!;
+    final currentMain =
+        _shaders['liquid_glass_list'] as List<ui.FragmentShader>?;
+    final currentBorder =
+        _shaders['liquid_glass_border_list'] as List<ui.FragmentShader>?;
 
     setState(() {
-      _shaders['liquid_glass_list'] = _createShaderList(main, newCount);
-      _shaders['liquid_glass_border_list'] =
-          _createShaderList(border, newCount);
+      _shaders['liquid_glass_list'] = _resizeShaderList(
+        currentMain,
+        main,
+        newCount,
+      );
+      _shaders['liquid_glass_border_list'] = _resizeShaderList(
+        currentBorder,
+        border,
+        newCount,
+      );
     });
   }
 
@@ -278,6 +318,9 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
         if (!context.mounted) return;
 
         _image = newImage;
+        if (mounted) {
+          setState(() {});
+        }
       }
     } catch (_) {
       // Soft-fail: skip this frame, the UI keeps working.
@@ -310,48 +353,81 @@ class _LiquidGlassViewState extends State<LiquidGlassView>
 
   @override
   Widget build(BuildContext context) {
+    final currentSize = captureSize;
+    if (currentSize.width > 0 && currentSize.height > 0) {
+      _lastStableSize = currentSize;
+    }
+
     return Stack(
       children: [
-        RepaintBoundary(
-          key: _repaintKey,
-          child: widget.backgroundWidget,
+        RepaintBoundary(key: _repaintKey, child: widget.backgroundWidget),
+        Stack(
+          children: [
+            ...widget.children.asMap().entries.map(_buildLensEntry),
+          ],
         ),
-        AnimatedBuilder(
-            animation: _controller,
-            builder: (context, s) {
-              return Stack(children: [
-                ...widget.children.asMap().entries.map((entry) {
-                  final shaderList =
-                      _shaders['liquid_glass_list'] as List<ui.FragmentShader>?;
-                  final borderList = _shaders['liquid_glass_border_list']
-                      as List<ui.FragmentShader>?;
-                  if (shaderList != null &&
-                      borderList != null &&
-                      entry.key < shaderList.length &&
-                      entry.key < borderList.length &&
-                      _image != null) {
-                    final index = entry.key;
-                    final child = entry.value;
-
-                    // Use `config.key` when provided, otherwise a stable
-                    // index-based key. This prevents Flutter from reusing
-                    // a lens `State` across the wrong slot when `children`
-                    // change (insert/remove/reorder).
-                    return LiquidGlassWidget(
-                      key: child.key ?? ValueKey('lg_index_$index'),
-                      config: child,
-                      parentSize: captureSize,
-                      sharedShader: shaderList[index],
-                      border: borderList[index],
-                      sharedImage: _image!,
-                    );
-                  } else {
-                    return const SizedBox.shrink();
-                  }
-                }),
-              ]);
-            })
       ],
+    );
+  }
+
+  Widget _buildLensEntry(MapEntry<int, LiquidGlass> entry) {
+    final shaderList =
+        _shaders['liquid_glass_list'] as List<ui.FragmentShader>?;
+    final borderList =
+        _shaders['liquid_glass_border_list'] as List<ui.FragmentShader>?;
+    if (shaderList != null &&
+        borderList != null &&
+        entry.key < shaderList.length &&
+        entry.key < borderList.length &&
+        _image != null) {
+      final index = entry.key;
+      final child = entry.value;
+
+      // Use `config.key` when provided, otherwise a stable index-based key.
+      // This prevents Flutter from reusing a lens `State` across the wrong slot
+      // when `children` change (insert/remove/reorder).
+      return LiquidGlassWidget(
+        key: child.key ?? ValueKey('lg_index_$index'),
+        config: child,
+        parentSize: captureSize,
+        sharedShader: shaderList[index],
+        border: borderList[index],
+        sharedImage: _image!,
+      );
+    }
+    return _buildFallbackLens(entry.value);
+  }
+
+  Widget _buildFallbackLens(LiquidGlass child, {Size? parentSize}) {
+    if (!child.visibility) {
+      return const SizedBox.shrink();
+    }
+
+    final currentSize = captureSize;
+    final resolvedParentSize =
+        parentSize ?? (currentSize.isEmpty ? _lastStableSize : currentSize);
+    if (resolvedParentSize.width <= 0 || resolvedParentSize.height <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final size = Size(child.width, child.height);
+    final offset = child.position.resolve(resolvedParentSize, size);
+    final radius = child.shape is RoundedRectangleShape
+        ? (child.shape as RoundedRectangleShape).cornerRadius
+        : 0.0;
+
+    return Positioned(
+      left: offset.dx,
+      top: offset.dy,
+      width: child.width,
+      height: child.height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: ColoredBox(
+          color: child.color,
+          child: child.child ?? const SizedBox.expand(),
+        ),
+      ),
     );
   }
 }

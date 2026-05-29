@@ -350,90 +350,123 @@ class _LiquidGlassWidgetState extends State<LiquidGlassWidget>
 
   @override
   Widget build(BuildContext context) {
-    return (_animController.value < 1)
-        ? Stack(
-            children: [
-              // Shader layer
-              IgnorePointer(
-                ignoring: true,
-                child: SizedBox(
-                  width: widget.parentSize.width,
-                  height: widget.parentSize.height,
-                  child: CustomPaint(
-                    painter: (widget.sharedShader != null &&
-                            widget.sharedImage != null)
-                        ? LiquidGlassPainter(
-                            dragOffset: _touchNotifier.value,
-                            position: widget.config.position,
-                            lensWidth: widget.config.width,
-                            lensHeight: widget.config.height,
-                            magnification: (_animController.value) +
-                                (widget.config.magnification *
-                                    (1 - _animController.value)),
-                            distortion: widget.config.distortion,
-                            distortionWidth: (widget.config.distortionWidth -
-                                _animController.value *
-                                    widget.config.distortionWidth),
-                            diagonalFlip: widget.config.diagonalFlip,
-                            enableInnerRadiusTransparent:
-                                widget.config.enableInnerRadiusTransparent,
-                            draggable: widget.config.draggable,
-                            parentSize: widget.parentSize,
-                            border: widget.config.shape,
-                            borderAlpha: (1 - _animController.value),
-                            blur: widget.config.blur,
-                            color: widget.config.color,
-                            shader: widget.sharedShader!,
-                            image: widget.sharedImage!,
-                            borderShader: widget.border,
-                            chromaticAberration:
-                                widget.config.chromaticAberration *
-                                    (1 - _animController.value),
-                            saturation: (_animController.value) +
-                                (widget.config.saturation *
-                                    (1 - _animController.value)),
-                            refractionMode: widget.config.refractionMode,
-                          )
-                        : null,
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-              ),
-              // Draggable lens
-              ValueListenableBuilder<Offset>(
-                valueListenable: _touchNotifier,
-                builder: (context, offset, child) {
-                  return Positioned(
-                    left: offset.dx,
-                    top: offset.dy,
-                    width: widget.config.width,
-                    height: widget.config.height,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior
-                          .opaque, // ensures full area receives gestures
-                      onPanUpdate: widget.config.draggable
-                          ? (details) {
-                              _touchNotifier.value += details.delta;
-                            }
-                          : null,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          widget.config.shape is RoundedRectangleShape
-                              ? (widget.config.shape as RoundedRectangleShape)
-                                  .cornerRadius
-                              : 0,
-                        ),
-                        child: widget.config.child ??
-                            Container(
-                              color: Colors.transparent,
-                            ),
+    return AnimatedBuilder(
+      animation: _animController,
+      builder: (context, _) {
+        return (_animController.value < 1)
+            ? Stack(
+                children: [
+                  // Shader layer
+                  IgnorePointer(
+                    ignoring: true,
+                    child: SizedBox(
+                      width: widget.parentSize.width,
+                      height: widget.parentSize.height,
+                      child: CustomPaint(
+                        painter: (widget.sharedShader != null &&
+                                widget.sharedImage != null)
+                            ? LiquidGlassPainter(
+                                dragOffset: _touchNotifier.value,
+                                position: widget.config.position,
+                                lensWidth: widget.config.width,
+                                lensHeight: widget.config.height,
+                                magnification: (_animController.value) +
+                                    (widget.config.magnification *
+                                        (1 - _animController.value)),
+                                distortion: widget.config.distortion,
+                                distortionWidth:
+                                    (widget.config.distortionWidth -
+                                        _animController.value *
+                                            widget.config.distortionWidth),
+                                diagonalFlip: widget.config.diagonalFlip,
+                                enableInnerRadiusTransparent:
+                                    widget.config.enableInnerRadiusTransparent,
+                                draggable: widget.config.draggable,
+                                parentSize: widget.parentSize,
+                                border: widget.config.shape,
+                                borderAlpha: (1 - _animController.value),
+                                blur: widget.config.blur,
+                                color: widget.config.color,
+                                shader: widget.sharedShader!,
+                                image: widget.sharedImage!,
+                                borderShader: widget.border,
+                                chromaticAberration:
+                                    widget.config.chromaticAberration *
+                                        (1 - _animController.value),
+                                saturation: (_animController.value) +
+                                    (widget.config.saturation *
+                                        (1 - _animController.value)),
+                                refractionMode: widget.config.refractionMode,
+                              )
+                            : null,
+                        child: const SizedBox.expand(),
                       ),
                     ),
-                  );
-                },
-              ),
-            ],
-          )
-        : SizedBox.shrink();
+                  ),
+                  // Draggable lens
+                  ValueListenableBuilder<Offset>(
+                    valueListenable: _touchNotifier,
+                    builder: (context, offset, child) {
+                      return Positioned(
+                        left: offset.dx,
+                        top: offset.dy,
+                        width: widget.config.width,
+                        height: widget.config.height,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior
+                              .opaque, // ensures full area receives gestures
+                          onPanUpdate: widget.config.draggable
+                              ? (details) {
+                                  _touchNotifier.value += details.delta;
+                                }
+                              : null,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              widget.config.shape is RoundedRectangleShape
+                                  ? (widget.config.shape
+                                          as RoundedRectangleShape)
+                                      .cornerRadius
+                                  : 0,
+                            ),
+                            child: widget.config.child ??
+                                Container(color: Colors.transparent),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              )
+            : _buildHiddenStateFallback();
+      },
+    );
+  }
+
+  Widget _buildHiddenStateFallback() {
+    if (!widget.config.visibility) {
+      return const SizedBox.shrink();
+    }
+
+    final radius = widget.config.shape is RoundedRectangleShape
+        ? (widget.config.shape as RoundedRectangleShape).cornerRadius
+        : 0.0;
+    final offset = widget.config.position.resolve(
+      widget.parentSize,
+      Size(widget.config.width, widget.config.height),
+    );
+
+    return Positioned(
+      left: offset.dx,
+      top: offset.dy,
+      width: widget.config.width,
+      height: widget.config.height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: ColoredBox(
+          color: widget.config.color,
+          child: widget.config.child ?? const SizedBox.expand(),
+        ),
+      ),
+    );
   }
 }
