@@ -115,8 +115,8 @@ class LiquidGlassPainter extends CustomPainter {
 
     shader.setFloat(index++, border!.lightDirection);
     shader.setFloat(index++, color.r);
-    shader.setFloat(index++, color.b);
     shader.setFloat(index++, color.g);
+    shader.setFloat(index++, color.b);
     shader.setFloat(index++, color.a);
     shader.setFloat(index++, border!.oneSideLightIntensity);
     shader.setFloat(index++, chromaticAberration);
